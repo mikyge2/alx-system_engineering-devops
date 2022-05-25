@@ -1,1 +1,1 @@
-Not empty
+prints current directory
