@@ -1,61 +1,53 @@
-# Postmortem
+# 0x19 - Postmortem
 
-Upon the release of ALX's System Engineering & DevOps project 0x19, approximately 06:00 West African Time (WAT) here in Nigeria, an outage occurred on an isolated Ubuntu 14.04 container running an Apache web server. GET requests on the server led to 500 Internal Server Error's, when the expected response was an HTML file defining a simple Holberton WordPress site.
+## Issue Summary
 
-## Debugging Process
+The web-01 server was down for six hours between 12PM EAT and 6AM EAT.
 
-Bug debugger Bamidele (Lexxyla... as in my actual initials... made that up on the spot, pretty
-good, huh?) encountered the issue upon opening the project and being, well, instructed to
-address it, roughly 19:20 PST. He promptly proceeded to undergo solving the problem.
+All services on the web server were inaccessible but the load balancer was still sending half of the user traffic to the server affecting about 50% of users that requested our services during the downtime.
 
-1. Checked running processes using `ps aux`. Two `apache2` processes - `root` and `www-data` -
-were properly running.
+The main cause of the issue is a memory overload caused by the server's memory and cache not being cleared regularly. In addition to that, the implementation of the new datadog agent pushed the server beyond its capacity resulting in a crash.
 
-2. Looked in the `sites-available` folder of the `/etc/apache2/` directory. Determined that
-the web server was serving content located in `/var/www/html/`.
+## Timeline - Feb 18
 
-3. In one terminal, ran `strace` on the PID of the `root` Apache process. In another, curled
-the server. Expected great things... only to be disappointed. `strace` gave no useful
-information.
+**11PM EAT** – A junior engineer was attempting to implement the new datadog agent on the server.
 
-4. Repeated step 3, except on the PID of the `www-data` process. Kept expectations lower this
-time... but was rewarded! `strace` revelead an `-1 ENOENT (No such file or directory)` error
-occurring upon an attempt to access the file `/var/www/html/wp-includes/class-wp-locale.phpp`.
+**12AM EAT** - After finishing up the setup process, the engineer noticed that server response time was slowing down and attempted a reboot. After the reboot, attempts to ssh into the server were failing.
 
-5. Looked through files in the `/var/www/html/` directory one-by-one, using Vim pattern
-matching to try and locate the erroneous `.phpp` file extension. Located it in the
-`wp-settings.php` file. (Line 137, `require_once( ABSPATH . WPINC . '/class-wp-locale.php' );`).
+**12:30AM EAT** – According to the datadog site report, the server was still online and the engineer was working under the assumption that it was a local problem. 
 
-6. Removed the trailing `p` from the line.
+**12:30AM EAT** - Tried logging in from a different device. Attempted ssh after deleting the saved known hosts.
 
-7. Tested another `curl` on the server. 200 A-ok!
+**1AM EAT** - Reached out for help to peers and mentors on Slack.
 
-8. Wrote a Puppet manifest to automate fixing of the error.
+**3AM EAT** – A peer suggested that they had been in a similar situation and that the situation resolved itself in about 24 hours.
 
-## Summation
+**5AM EAT** - Received suggestion to destroy virtual machine of server and start over with the project by mentor.
 
-In short, a typo. Gotta love'em. In full, the WordPress app was encountering a critical
-error in `wp-settings.php` when tyring to load the file `class-wp-locale.phpp`. The correct
-file name, located in the `wp-content` directory of the application folder, was
-`class-wp-locale.php`.
+**6AM EAT** - After reinitiating a new web-01 server, setup was complete and the services were back online.
 
-Patch involved a simple fix on the typo, removing the trailing `p`.
+## Root cause and resolution
 
-## Prevention
+The issue was caused because of an unexpected memory overload on the server in question. Adding another service on the machine without addressing the initial memory issues caused it to crash and made it unrecoverable. After reaching out to peers and mentors, a final verdict was made to destroy the virtual machine and reinitiate a new server to solve the issue. Soon afterwards, the load balancer was redirecting user traffic to the newly set up web-01 server.
 
-This outage was not a web server error, but an application error. To prevent such outages
-moving forward, please keep the following in mind.
+## Corrective and Preventative measures
 
-* Test! Test test test. Test the application before deploying. This error would have arisen
-and could have been addressed earlier had the app been tested.
+### Reduce time needed to create new server
 
-* Status monitoring. Enable some uptime-monitoring service such as
-[UptimeRobot](./https://uptimerobot.com/) to alert instantly upon outage of the website.
+ * Use bash or puppet scripts to automate generating new servers in case any should fail
 
-Note that in response to this error, I wrote a Puppet manifest
-[0-strace_is_your_friend.pp](https://github.com/Toluope05/alx-system_engineering-devops/blob/main/0x17-web_stack_debugging_3/0-strace_is_your_friend.pp)
-to automate fixing of any such identitical errors should they occur in the future. The manifest
-replaces any `phpp` extensions in the file `/var/www/html/wp-settings.php` with `php`.
+ * Set up a system to report if a server goes down and is unrecoverable to immediately replace it.
 
-But of course, it will never occur again, because we're programmers, and we never make
-errors! :wink:
+### Prevent server crashes
+
+ * Automated cache and memory clearance on server
+
+ * Increase usable server memory
+
+ * Scheduled server update and restart
+
+### Managing user traffic in case of crash
+
+ * Automated monitoring of server availability by load balancer
+
+ * Balancing load of requests based on availability
